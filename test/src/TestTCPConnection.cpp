@@ -10,6 +10,10 @@
 #include <SimpleSysIO/SysCall/TCPSocket.hpp>
 #include <SimpleSysIO/SysCall/TCPAcceptor.hpp>
 
+
+#ifdef SIMPLESYSIO_ENABLE_SYSCALL_NETWORKING
+
+
 #ifndef SIMPLESYSIO_CUSTOMIZED_NAMESPACE
 using namespace SimpleSysIO;
 #else
@@ -164,3 +168,5 @@ TEST_F(TestingServerV6, SendAndReceive)
 
 	TestSendAndReceive(*client, *m_testSocket);
 }
+
+#endif // SIMPLESYSIO_ENABLE_SYSCALL_NETWORKING

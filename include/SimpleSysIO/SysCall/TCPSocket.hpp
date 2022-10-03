@@ -35,7 +35,11 @@ class TCPSocket : virtual public StreamSocketBase
 {
 public: // static members:
 
+
 	friend class TCPAcceptor;
+	friend std::unique_ptr<TCPSocket>
+		Internal::Obj::Internal::make_unique<TCPSocket>();
+
 
 	/**
 	 * @brief create a TCP socket that is neither opened, connected to any remote
@@ -104,13 +108,6 @@ public: // static members:
 public:
 
 
-	TCPSocket() :
-		StreamSocketBase(),
-		m_ioService(),
-		m_socket(m_ioService)
-	{}
-
-
 	virtual ~TCPSocket() = default;
 
 
@@ -130,6 +127,13 @@ public:
 
 
 protected:
+
+
+	TCPSocket() :
+		StreamSocketBase(),
+		m_ioService(),
+		m_socket(m_ioService)
+	{}
 
 
 	virtual size_t SendRaw(const void* data, size_t size) override

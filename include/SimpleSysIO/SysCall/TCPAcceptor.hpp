@@ -38,6 +38,10 @@ class TCPAcceptor : virtual public StreamAcceptorBase
 public: // static members:
 
 
+	friend std::unique_ptr<TCPAcceptor>
+		Internal::Obj::Internal::make_unique<TCPAcceptor>();
+
+
 	/**
 	 * @brief Create a TCP acceptor that is neither opened nor bound to
 	 *        any local endpoint
@@ -107,13 +111,6 @@ public: // static members:
 public:
 
 
-	TCPAcceptor() :
-		StreamAcceptorBase(),
-		m_ioService(),
-		m_acceptor(m_ioService)
-	{}
-
-
 	// LCOV_EXCL_START
 	virtual ~TCPAcceptor() = default;
 	// LCOV_EXCL_STOP
@@ -138,6 +135,16 @@ public:
 	{
 		return m_acceptor.local_endpoint().port();
 	}
+
+
+protected:
+
+
+	TCPAcceptor() :
+		StreamAcceptorBase(),
+		m_ioService(),
+		m_acceptor(m_ioService)
+	{}
 
 
 private:
