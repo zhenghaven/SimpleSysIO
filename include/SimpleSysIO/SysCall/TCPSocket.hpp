@@ -18,7 +18,6 @@
 
 #include <boost/asio/io_service.hpp>
 #include <boost/asio/ip/tcp.hpp>
-#include <SimpleObjects/Internal/make_unique.hpp>
 
 
 #ifndef SIMPLESYSIO_CUSTOMIZED_NAMESPACE
@@ -37,8 +36,6 @@ public: // static members:
 
 
 	friend class TCPAcceptor;
-	friend std::unique_ptr<TCPSocket>
-		Internal::Obj::Internal::make_unique<TCPSocket>();
 
 
 	/**
@@ -49,7 +46,7 @@ public: // static members:
 	 */
 	static std::unique_ptr<TCPSocket> Create()
 	{
-		return Internal::Obj::Internal::make_unique<TCPSocket>();
+		return std::unique_ptr<TCPSocket>(new TCPSocket());
 	}
 
 	/**

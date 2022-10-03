@@ -16,7 +16,6 @@
 
 #include <boost/asio/io_service.hpp>
 #include <boost/asio/ip/tcp.hpp>
-#include <SimpleObjects/Internal/make_unique.hpp>
 
 #include "TCPSocket.hpp"
 
@@ -38,10 +37,6 @@ class TCPAcceptor : virtual public StreamAcceptorBase
 public: // static members:
 
 
-	friend std::unique_ptr<TCPAcceptor>
-		Internal::Obj::Internal::make_unique<TCPAcceptor>();
-
-
 	/**
 	 * @brief Create a TCP acceptor that is neither opened nor bound to
 	 *        any local endpoint
@@ -50,7 +45,7 @@ public: // static members:
 	 */
 	static std::unique_ptr<TCPAcceptor> Create()
 	{
-		return Internal::Obj::Internal::make_unique<TCPAcceptor>();
+		return std::unique_ptr<TCPAcceptor>(new TCPAcceptor());
 	}
 
 
