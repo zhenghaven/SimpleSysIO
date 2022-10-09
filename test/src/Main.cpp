@@ -12,7 +12,7 @@ namespace SimpleSysIO_Test
 
 int main(int argc, char** argv)
 {
-	constexpr size_t EXPECTED_NUM_OF_TEST_FILE = 1;
+	constexpr size_t EXPECTED_NUM_OF_TEST_FILE = 2;
 
 	std::cout << "===== SimpleSysIO test program =====" << std::endl;
 	std::cout << std::endl;
