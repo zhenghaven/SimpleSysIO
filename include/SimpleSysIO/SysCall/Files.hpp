@@ -37,13 +37,34 @@ namespace SysCallInternal
 
 class COpenImpl
 {
+public: // static members:
+
+	static std::FILE* COpenS(
+		const std::string& path,
+		const std::string& mode
+	)
+	{
+		std::FILE* file = nullptr;
+#if defined(__STDC_LIB_EXT1__) && defined(__STDC_WANT_LIB_EXT1__) && __STDC_WANT_LIB_EXT1__ == 1
+		auto err = fopen_s(&file, path.c_str(), mode.c_str());
+		if (err != 0)
+		{
+			throw Exception("I/O error while opening the file at " + path);
+		}
+#else
+		file = std::fopen(path.c_str(), mode.c_str());
+		if (file == nullptr)
+		{
+			throw Exception("I/O error while opening the file at " + path);
+		}
+#endif // defined(__STDC_LIB_EXT1__) && defined(__STDC_WANT_LIB_EXT1__) && __STDC_WANT_LIB_EXT1__ == 1
+		return file;
+	}
 
 public:
 
 	COpenImpl(const std::string& path, const std::string& mode) :
-		COpenImpl(
-			std::fopen(path.c_str(), mode.c_str())
-		)
+		COpenImpl(COpenS(path, mode))
 	{}
 
 

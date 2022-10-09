@@ -54,6 +54,16 @@ static std::string GenRandomFileName()
 }
 
 
+GTEST_TEST(TestDiskFiles, BinaryReadNonExistFile)
+{
+	const auto fileName = GenRandomFileName();
+	ASSERT_THROW(
+		SysCall::RBinaryFile::Open(fileName);,
+		Exception
+	);
+}
+
+
 GTEST_TEST(TestDiskFiles, BinaryCreateWriteThenRead)
 {
 	std::string fileName = GenRandomFileName();
