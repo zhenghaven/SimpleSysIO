@@ -45,7 +45,7 @@ public: // static members:
 	)
 	{
 		std::FILE* file = nullptr;
-#if defined(__STDC_LIB_EXT1__) && defined(__STDC_WANT_LIB_EXT1__) && __STDC_WANT_LIB_EXT1__ == 1
+#if defined(_WIN32)
 		auto err = fopen_s(&file, path.c_str(), mode.c_str());
 		if (err != 0)
 		{
@@ -57,7 +57,7 @@ public: // static members:
 		{
 			throw Exception("I/O error while opening the file at " + path);
 		}
-#endif // defined(__STDC_LIB_EXT1__) && defined(__STDC_WANT_LIB_EXT1__) && __STDC_WANT_LIB_EXT1__ == 1
+#endif // defined(_WIN32)
 		return file;
 	}
 
