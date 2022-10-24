@@ -17,6 +17,8 @@
 #include <memory>
 #include <string>
 
+#include <SimpleObjects/RealNumCast.hpp>
+
 #include "../Exceptions.hpp"
 #include "../Internal/SimpleObjects.hpp"
 #include "../BinaryIOStreamBase.hpp"
