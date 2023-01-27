@@ -14,9 +14,12 @@
 
 #include "../StreamAcceptorBase.hpp"
 
+#include <memory>
+
 #include <boost/asio/io_service.hpp>
 #include <boost/asio/ip/tcp.hpp>
 
+#include "../Exceptions.hpp"
 #include "TCPSocket.hpp"
 
 
@@ -43,9 +46,13 @@ public: // static members:
 	 *
 	 * @return A unique pointer to the created acceptor
 	 */
-	static std::unique_ptr<TCPAcceptor> Create()
+	static std::unique_ptr<TCPAcceptor> Create(
+		std::shared_ptr<boost::asio::io_service> ioService
+	)
 	{
-		return std::unique_ptr<TCPAcceptor>(new TCPAcceptor());
+		return std::unique_ptr<TCPAcceptor>(
+			new TCPAcceptor(std::move(ioService))
+		);
 	}
 
 
@@ -56,10 +63,12 @@ public: // static members:
 	 * @return A unique pointer to the bound acceptor
 	 */
 	static std::unique_ptr<TCPAcceptor> Bind(
-		boost::asio::ip::tcp::endpoint endpoint
+		boost::asio::ip::tcp::endpoint endpoint,
+		std::shared_ptr<boost::asio::io_service> ioService =
+			std::make_shared<boost::asio::io_service>()
 	)
 	{
-		auto acceptor = Create();
+		auto acceptor = Create(std::move(ioService));
 		acceptor->m_acceptor.open(endpoint.protocol());
 		acceptor->m_acceptor.bind(endpoint);
 		acceptor->m_acceptor.listen();
@@ -69,37 +78,59 @@ public: // static members:
 
 	static std::unique_ptr<TCPAcceptor> Bind(
 		boost::asio::ip::address_v4 ip,
-		uint16_t port
+		uint16_t port,
+		std::shared_ptr<boost::asio::io_service> ioService =
+			std::make_shared<boost::asio::io_service>()
 	)
 	{
-		return Bind(boost::asio::ip::tcp::endpoint(ip, port));
+		return Bind(
+			boost::asio::ip::tcp::endpoint(ip, port),
+			std::move(ioService)
+		);
 	}
 
 
 	static std::unique_ptr<TCPAcceptor> Bind(
 		boost::asio::ip::address_v6 ip,
-		uint16_t port
+		uint16_t port,
+		std::shared_ptr<boost::asio::io_service> ioService =
+			std::make_shared<boost::asio::io_service>()
 	)
 	{
-		return Bind(boost::asio::ip::tcp::endpoint(ip, port));
+		return Bind(
+			boost::asio::ip::tcp::endpoint(ip, port),
+			std::move(ioService)
+		);
 	}
 
 
 	static std::unique_ptr<TCPAcceptor> BindV4(
 		const std::string& ipv4,
-		uint16_t port
+		uint16_t port,
+		std::shared_ptr<boost::asio::io_service> ioService =
+			std::make_shared<boost::asio::io_service>()
 	)
 	{
-		return Bind(boost::asio::ip::address_v4::from_string(ipv4), port);
+		return Bind(
+			boost::asio::ip::address_v4::from_string(ipv4),
+			port,
+			std::move(ioService)
+		);
 	}
 
 
 	static std::unique_ptr<TCPAcceptor> BindV6(
 		const std::string& ipv6,
-		uint16_t port
+		uint16_t port,
+		std::shared_ptr<boost::asio::io_service> ioService =
+			std::make_shared<boost::asio::io_service>()
 	)
 	{
-		return Bind(boost::asio::ip::address_v6::from_string(ipv6), port);
+		return Bind(
+			boost::asio::ip::address_v6::from_string(ipv6),
+			port,
+			std::move(ioService)
+		);
 	}
 
 
@@ -132,22 +163,56 @@ public:
 	}
 
 
+	virtual void AsyncAccept(AsyncAcceptCallback callback) override
+	{
+		m_asyncSocket = TCPSocket::Create();
+		m_asyncAcceptCallback = callback;
+		m_acceptor.async_accept(
+			m_asyncSocket->m_socket,
+			std::bind(
+				&TCPAcceptor::OnAsyncAccept,
+				this,
+				std::placeholders::_1
+			)
+		);
+	}
+
 protected:
 
 
-	TCPAcceptor() :
+	TCPAcceptor(std::shared_ptr<boost::asio::io_service> ioService) :
 		StreamAcceptorBase(),
-		m_ioService(),
-		m_acceptor(m_ioService)
+		m_ioService(std::move(ioService)),
+		m_acceptor(*m_ioService),
+		m_asyncSocket(),
+		m_asyncAcceptCallback()
 	{}
+
+
+	void OnAsyncAccept(const boost::system::error_code& error)
+	{
+		if (!error)
+		{
+			m_asyncSocket->SetDefaultOptions();
+			m_asyncAcceptCallback(std::move(m_asyncSocket));
+		}
+		// else
+		// {
+		// 	throw Exception(
+		// 		"Failed to accept a new connection: " + error.message()
+		// 	);
+		// }
+	}
 
 
 private:
 
 
-	boost::asio::io_service m_ioService;
+	std::shared_ptr<boost::asio::io_service> m_ioService;
 	boost::asio::ip::tcp::acceptor m_acceptor;
 
+	std::unique_ptr<TCPSocket> m_asyncSocket;
+	AsyncAcceptCallback m_asyncAcceptCallback;
 
 }; // class TCPAcceptor
 

@@ -5,6 +5,7 @@
 
 #include <gtest/gtest.h>
 
+#include <atomic>
 #include <thread>
 
 #include <SimpleSysIO/SysCall/TCPSocket.hpp>
@@ -168,5 +169,58 @@ TEST_F(TestingServerV6, SendAndReceive)
 
 	TestSendAndReceive(*client, *m_testSocket);
 }
+
+
+TEST(TestTCPConnection, AsyncAccept)
+{
+	std::shared_ptr<boost::asio::io_service> ioService =
+		std::make_shared<boost::asio::io_service>();
+
+	auto acceptor1 = SysCall::TCPAcceptor::BindV4("127.0.0.1", 0, ioService);
+	{
+		acceptor1->AsyncAccept(
+			[](std::unique_ptr<StreamSocketBase>)
+			{
+				// do nothing
+			}
+		);
+	}
+
+	auto acceptor = SysCall::TCPAcceptor::BindV4("127.0.0.1", 0, ioService);
+
+	std::unique_ptr<StreamSocketBase> testSvrSocket;
+	std::atomic_bool isAccepted(false);
+	acceptor->AsyncAccept(
+		[&](std::unique_ptr<StreamSocketBase> socket)
+		{
+			testSvrSocket = std::move(socket);
+			isAccepted = true;
+		}
+	);
+
+	std::thread ioThread([&]()
+		{
+			ioService->run();
+		}
+	);
+
+	auto testCltSocket = SysCall::TCPSocket::ConnectV4(
+		"127.0.0.1", acceptor->GetLocalPort()
+	);
+
+	// wait for connection
+	while(!isAccepted)
+	{}
+
+	// stop acceptor 1
+	acceptor1.reset();
+
+	// stop io service
+	ioService->stop();
+	ioThread.join();
+
+	TestSendAndReceive(*testCltSocket, *testSvrSocket);
+}
+
 
 #endif // SIMPLESYSIO_ENABLE_SYSCALL_NETWORKING
