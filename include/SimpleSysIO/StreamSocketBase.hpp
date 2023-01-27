@@ -23,11 +23,16 @@ namespace SIMPLESYSIO_CUSTOMIZED_NAMESPACE
 #endif
 {
 
+
+struct StreamSocketRaw;
+
+
 class StreamSocketBase
 {
 public: //static members:
 
 	using EndianType = Internal::Obj::Endian;
+	friend struct StreamSocketRaw;
 
 public:
 	StreamSocketBase() = default;
@@ -326,5 +331,22 @@ protected:
 		}
 	}
 };
+
+
+struct StreamSocketRaw
+{
+
+static size_t Send(StreamSocketBase& sock, const void* data, size_t size)
+{
+	return sock.SendRaw(data, size);
+}
+
+static size_t Recv(StreamSocketBase& sock, void* buf, size_t size)
+{
+	return sock.RecvRaw(buf, size);
+}
+
+}; // struct StreamSocketRaw
+
 
 } // namespace SimpleSysIO
