@@ -8,6 +8,8 @@
 #include <atomic>
 #include <thread>
 
+#include <boost/asio/executor_work_guard.hpp>
+
 #include <SimpleSysIO/SysCall/TCPSocket.hpp>
 #include <SimpleSysIO/SysCall/TCPAcceptor.hpp>
 
@@ -175,6 +177,15 @@ TEST(TestTCPConnection, AsyncAccept)
 {
 	std::shared_ptr<boost::asio::io_service> ioService =
 		std::make_shared<boost::asio::io_service>();
+	boost::asio::executor_work_guard<boost::asio::io_context::executor_type>
+		workGuard = boost::asio::make_work_guard(*ioService);
+	std::thread ioThread([&]()
+		{
+			std::cout << "io thread start" << std::endl;
+			ioService->run();
+			std::cout << "io thread end" << std::endl;
+		}
+	);
 
 	auto acceptor1 = SysCall::TCPAcceptor::BindV4("127.0.0.1", 0, ioService);
 	{
@@ -198,19 +209,46 @@ TEST(TestTCPConnection, AsyncAccept)
 		}
 	);
 
-	std::thread ioThread([&]()
-		{
-			ioService->run();
-		}
-	);
+	// attemps to lock the internal mutex again should throw error
+	auto testProg = [&]() {
+		acceptor->AsyncAccept([](std::unique_ptr<StreamSocketBase>){});
+	};
+	ASSERT_THROW(testProg(), std::system_error);
 
 	auto testCltSocket = SysCall::TCPSocket::ConnectV4(
 		"127.0.0.1", acceptor->GetLocalPort()
 	);
-
 	// wait for connection
 	while(!isAccepted)
 	{}
+
+	TestSendAndReceive(*testCltSocket, *testSvrSocket);
+	testCltSocket.reset();
+	testSvrSocket.reset();
+
+
+
+	// try to accept again
+	isAccepted = false;
+	acceptor->AsyncAccept(
+		[&](std::unique_ptr<StreamSocketBase> socket)
+		{
+			testSvrSocket = std::move(socket);
+			isAccepted = true;
+		}
+	);
+	testCltSocket = SysCall::TCPSocket::ConnectV4(
+		"127.0.0.1", acceptor->GetLocalPort()
+	);
+	// wait for connection
+	while(!isAccepted)
+	{}
+
+	TestSendAndReceive(*testCltSocket, *testSvrSocket);
+	testCltSocket.reset();
+	testSvrSocket.reset();
+
+
 
 	// stop acceptor 1
 	acceptor1.reset();
@@ -218,8 +256,6 @@ TEST(TestTCPConnection, AsyncAccept)
 	// stop io service
 	ioService->stop();
 	ioThread.join();
-
-	TestSendAndReceive(*testCltSocket, *testSvrSocket);
 }
 
 

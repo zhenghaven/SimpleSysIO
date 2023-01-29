@@ -15,6 +15,7 @@
 #include "../StreamAcceptorBase.hpp"
 
 #include <memory>
+#include <mutex>
 
 #include <boost/asio/io_service.hpp>
 #include <boost/asio/ip/tcp.hpp>
@@ -165,8 +166,16 @@ public:
 
 	virtual void AsyncAccept(AsyncAcceptCallback callback) override
 	{
+		m_asyncSocketLock.lock();
+		// lock the mutex to ensure that async accept is not called again before
+		// the previous async accept is finished
+		// if this is called again by other threads, the lock will be blocked
+		// until the previous async accept is finished
+		// if this is called again by the same thread, a std::system_error
+		// exception will be thrown
+
 		m_asyncSocket = TCPSocket::Create();
-		m_asyncAcceptCallback = callback;
+		m_asyncAcceptCallback = std::move(callback);
 		m_acceptor.async_accept(
 			m_asyncSocket->m_socket,
 			std::bind(
@@ -184,6 +193,8 @@ protected:
 		StreamAcceptorBase(),
 		m_ioService(std::move(ioService)),
 		m_acceptor(*m_ioService),
+		m_asyncSocketMutex(),
+		m_asyncSocketLock(m_asyncSocketMutex, std::defer_lock),
 		m_asyncSocket(),
 		m_asyncAcceptCallback()
 	{}
@@ -193,8 +204,14 @@ protected:
 	{
 		if (!error)
 		{
-			m_asyncSocket->SetDefaultOptions();
-			m_asyncAcceptCallback(std::move(m_asyncSocket));
+			std::unique_ptr<TCPSocket> socket = std::move(m_asyncSocket);
+			AsyncAcceptCallback callback = std::move(m_asyncAcceptCallback);
+			// socket and callback function is released
+			// now the lock can be released
+			m_asyncSocketLock.unlock();
+
+			socket->SetDefaultOptions();
+			callback(std::move(socket));
 		}
 		// else
 		// {
@@ -211,6 +228,8 @@ private:
 	std::shared_ptr<boost::asio::io_service> m_ioService;
 	boost::asio::ip::tcp::acceptor m_acceptor;
 
+	std::mutex m_asyncSocketMutex;
+	std::unique_lock<std::mutex> m_asyncSocketLock;
 	std::unique_ptr<TCPSocket> m_asyncSocket;
 	AsyncAcceptCallback m_asyncAcceptCallback;
 
