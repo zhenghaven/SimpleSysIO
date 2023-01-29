@@ -57,6 +57,6 @@ jobs:
       run: >
         ctest
         -C ${{env.BUILD_TYPE}}
-        --parallel 10
-        --repeat-until-fail 100
+        --parallel 20
+        --repeat-until-fail 200
         --output-on-failure

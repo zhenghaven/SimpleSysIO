@@ -208,13 +208,6 @@ TEST(TestTCPConnection, AsyncAccept)
 			isAccepted = true;
 		}
 	);
-
-	// attemps to lock the internal mutex again should throw error
-	auto testProg = [&]() {
-		acceptor->AsyncAccept([](std::unique_ptr<StreamSocketBase>){});
-	};
-	ASSERT_THROW(testProg(), std::system_error);
-
 	auto testCltSocket = SysCall::TCPSocket::ConnectV4(
 		"127.0.0.1", acceptor->GetLocalPort()
 	);

@@ -135,6 +135,38 @@ public: // static members:
 	}
 
 
+	struct AsyncAcceptHandler
+	{
+		std::unique_ptr<TCPSocket> m_socket;
+		AsyncAcceptCallback m_callback;
+
+		AsyncAcceptHandler(
+			std::unique_ptr<TCPSocket> socket,
+			AsyncAcceptCallback callback
+		) :
+			m_socket(std::move(socket)),
+			m_callback(std::move(callback))
+		{}
+
+		~AsyncAcceptHandler() = default;
+
+		static void Handler(
+			std::shared_ptr<AsyncAcceptHandler> handler,
+			const boost::system::error_code& error
+		)
+		{
+			if (!error)
+			{
+				handler->m_socket->SetDefaultOptions();
+				handler->m_callback(std::move(handler->m_socket));
+			}
+			// else
+			// {
+			// }
+		}
+	}; // struct AsyncAcceptHandler
+
+
 public:
 
 
@@ -166,25 +198,29 @@ public:
 
 	virtual void AsyncAccept(AsyncAcceptCallback callback) override
 	{
-		m_asyncSocketLock.lock();
-		// lock the mutex to ensure that async accept is not called again before
-		// the previous async accept is finished
-		// if this is called again by other threads, the lock will be blocked
-		// until the previous async accept is finished
-		// if this is called again by the same thread, a std::system_error
-		// exception will be thrown
+		auto asyncSocket = TCPSocket::Create();
+		std::shared_ptr<AsyncAcceptHandler> handler =
+			std::make_shared<AsyncAcceptHandler>(
+				std::move(asyncSocket),
+				std::move(callback)
+			);
 
-		m_asyncSocket = TCPSocket::Create();
-		m_asyncAcceptCallback = std::move(callback);
 		m_acceptor.async_accept(
-			m_asyncSocket->m_socket,
+			handler->m_socket->m_socket,
 			std::bind(
-				&TCPAcceptor::OnAsyncAccept,
-				this,
+				&AsyncAcceptHandler::Handler,
+				handler,
 				std::placeholders::_1
 			)
 		);
 	}
+
+
+	virtual void AsyncCancel() //override
+	{
+		m_acceptor.cancel();
+	}
+
 
 protected:
 
@@ -192,34 +228,8 @@ protected:
 	TCPAcceptor(std::shared_ptr<boost::asio::io_service> ioService) :
 		StreamAcceptorBase(),
 		m_ioService(std::move(ioService)),
-		m_acceptor(*m_ioService),
-		m_asyncSocketMutex(),
-		m_asyncSocketLock(m_asyncSocketMutex, std::defer_lock),
-		m_asyncSocket(),
-		m_asyncAcceptCallback()
+		m_acceptor(*m_ioService)
 	{}
-
-
-	void OnAsyncAccept(const boost::system::error_code& error)
-	{
-		if (!error)
-		{
-			std::unique_ptr<TCPSocket> socket = std::move(m_asyncSocket);
-			AsyncAcceptCallback callback = std::move(m_asyncAcceptCallback);
-			// socket and callback function is released
-			// now the lock can be released
-			m_asyncSocketLock.unlock();
-
-			socket->SetDefaultOptions();
-			callback(std::move(socket));
-		}
-		// else
-		// {
-		// 	throw Exception(
-		// 		"Failed to accept a new connection: " + error.message()
-		// 	);
-		// }
-	}
 
 
 private:
@@ -228,10 +238,6 @@ private:
 	std::shared_ptr<boost::asio::io_service> m_ioService;
 	boost::asio::ip::tcp::acceptor m_acceptor;
 
-	std::mutex m_asyncSocketMutex;
-	std::unique_lock<std::mutex> m_asyncSocketLock;
-	std::unique_ptr<TCPSocket> m_asyncSocket;
-	AsyncAcceptCallback m_asyncAcceptCallback;
 
 }; // class TCPAcceptor
 
