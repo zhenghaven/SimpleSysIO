@@ -9,7 +9,9 @@
 #include <cstddef>
 #include <cstdint>
 
+#include <functional>
 #include <type_traits>
+#include <vector>
 
 #include <SimpleObjects/RealNumCast.hpp>
 
@@ -32,6 +34,9 @@ class StreamSocketBase
 public: //static members:
 
 	using EndianType = Internal::Obj::Endian;
+
+	using AsyncRecvCallback = std::function<void(std::vector<uint8_t>, bool)>;
+
 	friend struct StreamSocketRaw;
 
 public:
@@ -330,6 +335,20 @@ protected:
 			);
 		}
 	}
+
+
+	/**
+	 * @brief The very basic interface to receive data asynchronously
+	 *
+	 * @param buffSize The size of the intermediate buffer used to store
+	 *                 received data
+	 *                 The child class implementation should allocate this
+	 *                 buffer internally and pass it to the callback function
+	 * @param callback The callback function to be called when the data is
+	 *                 received
+	 */
+	virtual void AsyncRecvRaw(size_t buffSize, AsyncRecvCallback callback) = 0;
+
 };
 
 
@@ -344,6 +363,15 @@ static size_t Send(StreamSocketBase& sock, const void* data, size_t size)
 static size_t Recv(StreamSocketBase& sock, void* buf, size_t size)
 {
 	return sock.RecvRaw(buf, size);
+}
+
+static void AsyncRecv(
+	StreamSocketBase& sock,
+	size_t buffSize,
+	typename StreamSocketBase::AsyncRecvCallback callback
+)
+{
+	sock.AsyncRecvRaw(buffSize, std::move(callback));
 }
 
 }; // struct StreamSocketRaw
