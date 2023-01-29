@@ -158,11 +158,12 @@ public: // static members:
 			if (!error)
 			{
 				handler->m_socket->SetDefaultOptions();
-				handler->m_callback(std::move(handler->m_socket));
+				handler->m_callback(std::move(handler->m_socket), false);
 			}
-			// else
-			// {
-			// }
+			else
+			{
+				handler->m_callback(std::move(handler->m_socket), true);
+			}
 		}
 	}; // struct AsyncAcceptHandler
 

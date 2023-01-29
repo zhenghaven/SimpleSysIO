@@ -24,7 +24,7 @@ class StreamAcceptorBase
 public: // static members:
 
 	using AsyncAcceptCallback =
-		std::function<void(std::unique_ptr<StreamSocketBase>)>;
+		std::function<void(std::unique_ptr<StreamSocketBase>, bool)>;
 
 public:
 

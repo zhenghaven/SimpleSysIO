@@ -181,16 +181,14 @@ TEST(TestTCPConnection, AsyncAccept)
 		workGuard = boost::asio::make_work_guard(*ioService);
 	std::thread ioThread([&]()
 		{
-			std::cout << "io thread start" << std::endl;
 			ioService->run();
-			std::cout << "io thread end" << std::endl;
 		}
 	);
 
 	auto acceptor1 = SysCall::TCPAcceptor::BindV4("127.0.0.1", 0, ioService);
 	{
 		acceptor1->AsyncAccept(
-			[](std::unique_ptr<StreamSocketBase>)
+			[](std::unique_ptr<StreamSocketBase>, bool)
 			{
 				// do nothing
 			}
@@ -202,10 +200,13 @@ TEST(TestTCPConnection, AsyncAccept)
 	std::unique_ptr<StreamSocketBase> testSvrSocket;
 	std::atomic_bool isAccepted(false);
 	acceptor->AsyncAccept(
-		[&](std::unique_ptr<StreamSocketBase> socket)
+		[&](std::unique_ptr<StreamSocketBase> socket, bool hasErrorOccurred)
 		{
-			testSvrSocket = std::move(socket);
-			isAccepted = true;
+			if(!hasErrorOccurred)
+			{
+				testSvrSocket = std::move(socket);
+				isAccepted = true;
+			}
 		}
 	);
 	auto testCltSocket = SysCall::TCPSocket::ConnectV4(
@@ -224,10 +225,13 @@ TEST(TestTCPConnection, AsyncAccept)
 	// try to accept again
 	isAccepted = false;
 	acceptor->AsyncAccept(
-		[&](std::unique_ptr<StreamSocketBase> socket)
+		[&](std::unique_ptr<StreamSocketBase> socket, bool hasErrorOccurred)
 		{
-			testSvrSocket = std::move(socket);
-			isAccepted = true;
+			if(!hasErrorOccurred)
+			{
+				testSvrSocket = std::move(socket);
+				isAccepted = true;
+			}
 		}
 	);
 	testCltSocket = SysCall::TCPSocket::ConnectV4(
@@ -269,10 +273,13 @@ TEST(TestTCPConnection, AsyncRecv)
 	std::unique_ptr<StreamSocketBase> testSvrSocket;
 	std::atomic_bool isAccepted(false);
 	acceptor->AsyncAccept(
-		[&](std::unique_ptr<StreamSocketBase> socket)
+		[&](std::unique_ptr<StreamSocketBase> socket, bool hasErrorOccurred)
 		{
-			testSvrSocket = std::move(socket);
-			isAccepted = true;
+			if (!hasErrorOccurred)
+			{
+				testSvrSocket = std::move(socket);
+				isAccepted = true;
+			}
 		}
 	);
 	auto testCltSocket = SysCall::TCPSocket::ConnectV4(
