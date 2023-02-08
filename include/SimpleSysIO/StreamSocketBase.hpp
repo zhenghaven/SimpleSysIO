@@ -38,6 +38,7 @@ public: //static members:
 	using AsyncRecvCallback = std::function<void(std::vector<uint8_t>, bool)>;
 
 	friend struct StreamSocketRaw;
+	friend struct StreamSocketAsync;
 
 public:
 	StreamSocketBase() = default;
@@ -375,6 +376,113 @@ static void AsyncRecv(
 }
 
 }; // struct StreamSocketRaw
+
+
+struct StreamSocketAsync
+{
+
+using EndianType = Internal::Obj::Endian;
+
+static void RecvAndFillUntilComplete(
+	std::shared_ptr<StreamSocketBase> sock,
+	size_t expSize,
+	typename StreamSocketBase::AsyncRecvCallback callback
+)
+{
+	std::weak_ptr<StreamSocketBase> weakSock = sock;
+
+	auto callbackWrapper = [
+		weakSock,
+		callback,
+		expSize
+	](std::vector<uint8_t> buf, bool hasErrorOccurred)
+	{
+		if (!hasErrorOccurred)
+		{
+			size_t recvSize = buf.size();
+			buf.resize(expSize);
+			if (recvSize < expSize)
+			{
+				// we need to fill in more data
+				auto sock = weakSock.lock();
+				if (sock)
+				{
+					sock->RecvRawUntilComplete(
+						buf.data() + recvSize,
+						expSize - recvSize
+					);
+				}
+				else
+				{
+					// the socket has been closed
+					callback(std::vector<uint8_t>(), true);
+					return;
+				}
+			}
+
+			// we have received enough data
+			callback(std::move(buf), false);
+			return;
+		}
+
+		// error occurred
+		callback(std::vector<uint8_t>(), true);
+	};
+
+	sock->AsyncRecvRaw(expSize, std::move(callbackWrapper));
+}
+
+
+template<
+	typename _ContainerType,
+	typename _SizeType = uint64_t,
+	EndianType _TransmitEndian = EndianType::little
+>
+static void RecvAndFillSizedBytes(
+	std::shared_ptr<StreamSocketBase> sock,
+	std::function<void(_ContainerType, bool)> callback
+)
+{
+	std::weak_ptr<StreamSocketBase> weakSock = sock;
+
+	auto callbackWrapper = [
+		weakSock,
+		callback
+	](std::vector<uint8_t> buf, bool hasErrorOccurred)
+	{
+		auto sock = weakSock.lock();
+		if (
+			!hasErrorOccurred &&
+			sock != nullptr
+		)
+		{
+			_SizeType size = 0;
+			std::memcpy(&size, buf.data(), sizeof(_SizeType));
+
+			// Convert endianness from transmit --> native
+			size = Internal::EndianConvert<
+				_TransmitEndian,
+				EndianType::native
+			>::Primitive(size);
+
+			auto finData = sock->RecvBytes<_ContainerType>(size);
+
+			callback(finData, false);
+			return;
+		}
+
+		// error occurred or socket has been closed
+		callback(_ContainerType(), true);
+	};
+
+	RecvAndFillUntilComplete(
+		sock,
+		sizeof(_SizeType),
+		std::move(callbackWrapper)
+	);
+}
+
+}; // struct StreamSocketAsync
 
 
 } // namespace SimpleSysIO
