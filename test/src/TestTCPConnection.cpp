@@ -355,4 +355,100 @@ TEST(TestTCPConnection, AsyncRecv)
 }
 
 
+TEST(TestTCPConnection, AsyncRecvFill)
+{
+	std::shared_ptr<boost::asio::io_service> ioService =
+		std::make_shared<boost::asio::io_service>();
+	boost::asio::executor_work_guard<boost::asio::io_context::executor_type>
+		workGuard = boost::asio::make_work_guard(*ioService);
+	std::thread ioThread([&]()
+		{
+			ioService->run();
+		}
+	);
+
+	// Construct server and client sockets
+	auto acceptor = SysCall::TCPAcceptor::BindV4("127.0.0.1", 0, ioService);
+	std::shared_ptr<StreamSocketBase> testSvrSocket;
+	std::atomic_bool isAccepted(false);
+	acceptor->AsyncAccept(
+		[&](std::unique_ptr<StreamSocketBase> socket, bool hasErrorOccurred)
+		{
+			if (!hasErrorOccurred)
+			{
+				testSvrSocket = std::move(socket);
+				isAccepted = true;
+			}
+		}
+	);
+	std::shared_ptr<StreamSocketBase> testCltSocket =
+		SysCall::TCPSocket::ConnectV4(
+			"127.0.0.1", acceptor->GetLocalPort(), ioService
+		);
+	// wait for connection
+	while(!isAccepted)
+	{}
+
+	// async recv
+	std::string testStr = "Hello World!";
+	std::atomic_bool isRecv(false);
+	std::string recvStr;
+	StreamSocketAsync::RecvAndFillSizedBytes<std::string>(
+		testSvrSocket,
+		[&](std::string buf, bool hasErrorOccurred)
+		{
+			if (!hasErrorOccurred)
+			{
+				recvStr = std::move(buf);
+				isRecv = true;
+			}
+		}
+	);
+	testCltSocket->SizedSendBytes(testStr);
+	// wait for recv
+	while(!isRecv)
+	{}
+
+
+	// compare result
+	EXPECT_GT(recvStr.size(), 0);
+	EXPECT_GE(testStr.size(), recvStr.size());
+	EXPECT_TRUE(testStr.find(recvStr) == 0);
+
+
+
+
+
+	// The other way around
+	isRecv = false;
+	recvStr.clear();
+	StreamSocketAsync::RecvAndFillSizedBytes<std::string>(
+		testCltSocket,
+		[&](std::string buf, bool hasErrorOccurred)
+		{
+			if (!hasErrorOccurred)
+			{
+				recvStr = std::move(buf);
+				isRecv = true;
+			}
+		}
+	);
+	testSvrSocket->SizedSendBytes(testStr);
+	// wait for recv
+	while(!isRecv)
+	{}
+
+
+	// compare result
+	EXPECT_GT(recvStr.size(), 0);
+	EXPECT_GE(testStr.size(), recvStr.size());
+	EXPECT_TRUE(testStr.find(recvStr) == 0);
+
+
+	// stop io service
+	ioService->stop();
+	ioThread.join();
+}
+
+
 #endif // SIMPLESYSIO_ENABLE_SYSCALL_NETWORKING
