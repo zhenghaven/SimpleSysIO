@@ -369,7 +369,7 @@ TEST(TestTCPConnection, AsyncRecvFill)
 
 	// Construct server and client sockets
 	auto acceptor = SysCall::TCPAcceptor::BindV4("127.0.0.1", 0, ioService);
-	std::shared_ptr<StreamSocketBase> testSvrSocket;
+	std::unique_ptr<StreamSocketBase> testSvrSocket;
 	std::atomic_bool isAccepted(false);
 	acceptor->AsyncAccept(
 		[&](std::unique_ptr<StreamSocketBase> socket, bool hasErrorOccurred)
@@ -381,7 +381,7 @@ TEST(TestTCPConnection, AsyncRecvFill)
 			}
 		}
 	);
-	std::shared_ptr<StreamSocketBase> testCltSocket =
+	std::unique_ptr<StreamSocketBase> testCltSocket =
 		SysCall::TCPSocket::ConnectV4(
 			"127.0.0.1", acceptor->GetLocalPort(), ioService
 		);
@@ -393,8 +393,7 @@ TEST(TestTCPConnection, AsyncRecvFill)
 	std::string testStr = "Hello World!";
 	std::atomic_bool isRecv(false);
 	std::string recvStr;
-	StreamSocketAsync::RecvAndFillSizedBytes<std::string>(
-		testSvrSocket,
+	testSvrSocket->AsyncSizedRecvBytes<std::string>(
 		[&](std::string buf, bool hasErrorOccurred)
 		{
 			if (!hasErrorOccurred)
@@ -422,8 +421,7 @@ TEST(TestTCPConnection, AsyncRecvFill)
 	// The other way around
 	isRecv = false;
 	recvStr.clear();
-	StreamSocketAsync::RecvAndFillSizedBytes<std::string>(
-		testCltSocket,
+	testCltSocket->AsyncSizedRecvBytes<std::string>(
 		[&](std::string buf, bool hasErrorOccurred)
 		{
 			if (!hasErrorOccurred)

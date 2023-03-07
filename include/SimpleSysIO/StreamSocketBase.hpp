@@ -260,6 +260,55 @@ public:
 	}
 
 
+	/**
+	 * @brief The very basic interface to receive data asynchronously
+	 *
+	 * @param buffSize The size of the intermediate buffer used to store
+	 *                 received data
+	 *                 The child class implementation should allocate this
+	 *                 buffer internally and pass it to the callback function
+	 * @param callback The callback function to be called when the data is
+	 *                 received
+	 */
+	virtual void AsyncRecvRaw(size_t buffSize, AsyncRecvCallback callback) = 0;
+
+
+	virtual void AsyncRecvRawUntilComplete(
+		size_t expSize,
+		AsyncRecvCallback callback
+	)
+	{
+		AsyncRecvRawUntilCompleteImpl implCallback(
+			this,
+			expSize,
+			std::move(callback),
+			std::make_shared<std::vector<uint8_t> >()
+		);
+
+		AsyncRecvRaw(expSize, implCallback);
+	}
+
+	template<
+		typename _ContainerType,
+		typename _SizeType = uint64_t,
+		EndianType _TransmitEndian = EndianType::little
+	>
+	void AsyncSizedRecvBytes(
+		std::function<void(_ContainerType, bool)> callback
+	)
+	{
+		AsyncSizedRecvBytesDataImpl<_ContainerType> dataCallback(
+			std::move(callback)
+		);
+		AsyncSizedRecvBytesSizeImpl<
+			_ContainerType,
+			_SizeType,
+			_TransmitEndian
+		> sizeCallback(this, std::move(dataCallback));
+
+		AsyncRecvRawUntilComplete(sizeof(_SizeType), sizeCallback);
+	}
+
 protected:
 
 
@@ -337,20 +386,181 @@ protected:
 		}
 	}
 
+private:
 
-	/**
-	 * @brief The very basic interface to receive data asynchronously
-	 *
-	 * @param buffSize The size of the intermediate buffer used to store
-	 *                 received data
-	 *                 The child class implementation should allocate this
-	 *                 buffer internally and pass it to the callback function
-	 * @param callback The callback function to be called when the data is
-	 *                 received
-	 */
-	virtual void AsyncRecvRaw(size_t buffSize, AsyncRecvCallback callback) = 0;
+	struct AsyncRecvRawUntilCompleteImpl
+	{
+		AsyncRecvRawUntilCompleteImpl(
+			StreamSocketBase* socket,
+			size_t expSize,
+			AsyncRecvCallback callback,
+			std::shared_ptr<std::vector<uint8_t> > cached
+		) :
+			m_socket(socket),
+			m_expSize(expSize),
+			m_callback(std::move(callback)),
+			m_cached(std::move(cached))
+		{}
 
-};
+		AsyncRecvRawUntilCompleteImpl(AsyncRecvRawUntilCompleteImpl&& other) :
+			m_socket(std::move(other.m_socket)),
+			m_expSize(std::move(other.m_expSize)),
+			m_callback(std::move(other.m_callback)),
+			m_cached(std::move(other.m_cached))
+		{}
+
+		AsyncRecvRawUntilCompleteImpl(
+			const AsyncRecvRawUntilCompleteImpl& other
+		) :
+			m_socket(other.m_socket),
+			m_expSize(other.m_expSize),
+			m_callback(other.m_callback),
+			m_cached(other.m_cached)
+		{}
+
+		void operator()(std::vector<uint8_t> buf, bool hasErrorOccurred)
+		{
+			if (!hasErrorOccurred)
+			{
+				m_cached->insert(
+					m_cached->end(),
+					std::make_move_iterator(buf.begin()),
+					std::make_move_iterator(buf.end())
+				);
+
+				if (m_cached->size() < m_expSize)
+				{
+					// we need to receive more data
+					m_socket->AsyncRecvRaw(
+						m_expSize - m_cached->size(),
+						*this
+					);
+				}
+				else
+				{
+					// we have received enough data
+					m_callback(std::move(*m_cached), false);
+				}
+			}
+			else
+			{
+				// error occurred
+				m_callback(std::vector<uint8_t>(), true);
+			}
+		}
+
+		StreamSocketBase* m_socket;
+		size_t m_expSize;
+		AsyncRecvCallback m_callback;
+		std::shared_ptr<std::vector<uint8_t> > m_cached;
+	}; // struct AsyncRecvRawUntilCompleteImpl
+
+	template<typename _ContainerType>
+	struct AsyncSizedRecvBytesDataImpl
+	{
+		using CallbackType = std::function<void(_ContainerType, bool)>;
+		using DestValType = typename _ContainerType::value_type;
+		static constexpr size_t sk_destValSize = sizeof(DestValType);
+
+		AsyncSizedRecvBytesDataImpl(
+			CallbackType callback
+		):
+			m_callback(std::move(callback))
+		{}
+
+		AsyncSizedRecvBytesDataImpl(AsyncSizedRecvBytesDataImpl&& other) :
+			m_callback(std::move(other.m_callback))
+		{}
+
+		AsyncSizedRecvBytesDataImpl(
+			const AsyncSizedRecvBytesDataImpl& other
+		) :
+			m_callback(other.m_callback)
+		{}
+
+		void operator()(std::vector<uint8_t> buf, bool hasErrorOccurred)
+		{
+			if (!hasErrorOccurred)
+			{
+				size_t destSize =
+					(buf.size() + sk_destValSize - 1) / sk_destValSize;
+
+				_ContainerType data;
+				data.resize(destSize);
+
+				std::memcpy(&(data[0]), buf.data(), buf.size());
+
+				m_callback(data, hasErrorOccurred);
+			}
+			else
+			{
+				// error occurred or socket has been closed
+				m_callback(_ContainerType(), true);
+			}
+		}
+
+		CallbackType m_callback;
+	}; // struct AsyncSizedRecvBytesDataImpl
+
+	template<
+		typename _ContainerType,
+		typename _SizeType = uint64_t,
+		EndianType _TransmitEndian = EndianType::little
+	>
+	struct AsyncSizedRecvBytesSizeImpl
+	{
+		using DataCallbackType = AsyncSizedRecvBytesDataImpl<_ContainerType>;
+
+		AsyncSizedRecvBytesSizeImpl(
+			StreamSocketBase* socket,
+			DataCallbackType dataCallback
+		):
+			m_socket(socket),
+			m_dataCallback(std::move(dataCallback))
+		{}
+
+		AsyncSizedRecvBytesSizeImpl(AsyncSizedRecvBytesSizeImpl&& other) :
+			m_socket(std::move(other.m_socket)),
+			m_dataCallback(std::move(other.m_dataCallback))
+		{}
+
+		AsyncSizedRecvBytesSizeImpl(
+			const AsyncSizedRecvBytesSizeImpl& other
+		) :
+			m_socket(other.m_socket),
+			m_dataCallback(other.m_dataCallback)
+		{}
+
+		void operator()(std::vector<uint8_t> buf, bool hasErrorOccurred)
+		{
+			if (!hasErrorOccurred)
+			{
+				_SizeType size = 0;
+				std::memcpy(&size, buf.data(), sizeof(_SizeType));
+
+				// Convert endianness from transmit --> native
+				size = Internal::EndianConvert<
+					_TransmitEndian,
+					EndianType::native
+				>::Primitive(size);
+
+				m_socket->AsyncRecvRawUntilComplete(
+					size,
+					m_dataCallback
+				);
+			}
+			else
+			{
+				// error occurred or socket has been closed
+				m_dataCallback(std::vector<uint8_t>(), true);
+			}
+		}
+
+		StreamSocketBase* m_socket;
+		DataCallbackType m_dataCallback;
+	}; // struct AsyncSizedRecvBytesSizeImpl
+
+}; // class StreamSocketBase
 
 
 struct StreamSocketRaw
@@ -376,113 +586,6 @@ static void AsyncRecv(
 }
 
 }; // struct StreamSocketRaw
-
-
-struct StreamSocketAsync
-{
-
-using EndianType = Internal::Obj::Endian;
-
-static void RecvAndFillUntilComplete(
-	std::shared_ptr<StreamSocketBase> sock,
-	size_t expSize,
-	typename StreamSocketBase::AsyncRecvCallback callback
-)
-{
-	std::weak_ptr<StreamSocketBase> weakSock = sock;
-
-	auto callbackWrapper = [
-		weakSock,
-		callback,
-		expSize
-	](std::vector<uint8_t> buf, bool hasErrorOccurred)
-	{
-		if (!hasErrorOccurred)
-		{
-			size_t recvSize = buf.size();
-			buf.resize(expSize);
-			if (recvSize < expSize)
-			{
-				// we need to fill in more data
-				auto sock = weakSock.lock();
-				if (sock)
-				{
-					sock->RecvRawUntilComplete(
-						buf.data() + recvSize,
-						expSize - recvSize
-					);
-				}
-				else
-				{
-					// the socket has been closed
-					callback(std::vector<uint8_t>(), true);
-					return;
-				}
-			}
-
-			// we have received enough data
-			callback(std::move(buf), false);
-			return;
-		}
-
-		// error occurred
-		callback(std::vector<uint8_t>(), true);
-	};
-
-	sock->AsyncRecvRaw(expSize, std::move(callbackWrapper));
-}
-
-
-template<
-	typename _ContainerType,
-	typename _SizeType = uint64_t,
-	EndianType _TransmitEndian = EndianType::little
->
-static void RecvAndFillSizedBytes(
-	std::shared_ptr<StreamSocketBase> sock,
-	std::function<void(_ContainerType, bool)> callback
-)
-{
-	std::weak_ptr<StreamSocketBase> weakSock = sock;
-
-	auto callbackWrapper = [
-		weakSock,
-		callback
-	](std::vector<uint8_t> buf, bool hasErrorOccurred)
-	{
-		auto sock = weakSock.lock();
-		if (
-			!hasErrorOccurred &&
-			sock != nullptr
-		)
-		{
-			_SizeType size = 0;
-			std::memcpy(&size, buf.data(), sizeof(_SizeType));
-
-			// Convert endianness from transmit --> native
-			size = Internal::EndianConvert<
-				_TransmitEndian,
-				EndianType::native
-			>::Primitive(size);
-
-			auto finData = sock->RecvBytes<_ContainerType>(size);
-
-			callback(finData, false);
-			return;
-		}
-
-		// error occurred or socket has been closed
-		callback(_ContainerType(), true);
-	};
-
-	RecvAndFillUntilComplete(
-		sock,
-		sizeof(_SizeType),
-		std::move(callbackWrapper)
-	);
-}
-
-}; // struct StreamSocketAsync
 
 
 } // namespace SimpleSysIO
