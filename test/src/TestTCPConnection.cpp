@@ -388,11 +388,13 @@ TEST(TestTCPConnection, AsyncRecvFill)
 	// wait for connection
 	while(!isAccepted)
 	{}
-
-	// async recv
 	std::string testStr = "Hello World!";
 	std::atomic_bool isRecv(false);
 	std::string recvStr;
+
+	// async recv
+	isRecv = false;
+	recvStr.clear();
 	testSvrSocket->AsyncSizedRecvBytes<std::string>(
 		[&](std::string buf, bool hasErrorOccurred)
 		{
@@ -410,9 +412,8 @@ TEST(TestTCPConnection, AsyncRecvFill)
 
 
 	// compare result
-	EXPECT_GT(recvStr.size(), 0);
-	EXPECT_GE(testStr.size(), recvStr.size());
-	EXPECT_TRUE(testStr.find(recvStr) == 0);
+	EXPECT_EQ(recvStr.size(), testStr.size());
+	EXPECT_EQ(recvStr, testStr);
 
 
 
@@ -438,9 +439,50 @@ TEST(TestTCPConnection, AsyncRecvFill)
 
 
 	// compare result
-	EXPECT_GT(recvStr.size(), 0);
-	EXPECT_GE(testStr.size(), recvStr.size());
-	EXPECT_TRUE(testStr.find(recvStr) == 0);
+	EXPECT_EQ(recvStr.size(), testStr.size());
+	EXPECT_EQ(recvStr, testStr);
+
+
+
+
+
+	// Try a break in the middle
+	std::vector<uint8_t> testData = {0x00U, 0x01U, 0x02U, 0x03U, 0x04U, };
+	std::vector<uint8_t> recvData;
+	isRecv = false;
+	testCltSocket->AsyncRecvRawUntilComplete(
+		testData.size() * 2,
+		[&](std::vector<uint8_t> buf, bool hasErrorOccurred)
+		{
+			if (!hasErrorOccurred)
+			{
+				recvData = std::move(buf);
+				isRecv = true;
+			}
+		}
+	);
+	testSvrSocket->SendBytes(testData);
+	// wait for recv
+	auto startTime = std::chrono::system_clock::now();
+	while(
+		!isRecv &&
+		((std::chrono::system_clock::now() - startTime) < std::chrono::seconds(1))
+	)
+	{}
+	testSvrSocket->SendBytes(testData);
+	while(!isRecv)
+	{}
+
+
+	// compare result
+	EXPECT_EQ(recvData.size(), testData.size() * 2);
+	EXPECT_EQ(
+		recvData,
+		std::vector<uint8_t>({
+			0x00U, 0x01U, 0x02U, 0x03U, 0x04U,
+			0x00U, 0x01U, 0x02U, 0x03U, 0x04U,
+		})
+	);
 
 
 	// stop io service

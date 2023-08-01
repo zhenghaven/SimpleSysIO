@@ -278,14 +278,15 @@ public:
 		AsyncRecvCallback callback
 	)
 	{
-		AsyncRecvRawUntilCompleteImpl implCallback(
+		AsyncRecvRawUntilCompleteImpl implCallbackFunctor(
 			this,
 			expSize,
 			std::move(callback),
 			std::make_shared<std::vector<uint8_t> >()
 		);
+		AsyncRecvCallback implCallback = std::move(implCallbackFunctor);
 
-		AsyncRecvRaw(expSize, implCallback);
+		AsyncRecvRaw(expSize, std::move(implCallback));
 	}
 
 	template<
@@ -431,9 +432,19 @@ private:
 				if (m_cached->size() < m_expSize)
 				{
 					// we need to receive more data
+
+					AsyncRecvRawUntilCompleteImpl nextCallbackFunctor(
+						m_socket,
+						m_expSize,
+						m_callback,
+						m_cached
+					);
+					AsyncRecvCallback nextCallback =
+						std::move(nextCallbackFunctor);
+
 					m_socket->AsyncRecvRaw(
 						m_expSize - m_cached->size(),
-						*this
+						std::move(nextCallback)
 					);
 				}
 				else
