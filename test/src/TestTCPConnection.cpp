@@ -466,7 +466,7 @@ TEST(TestTCPConnection, AsyncRecvFill)
 	auto startTime = std::chrono::system_clock::now();
 	while(
 		!isRecv &&
-		((std::chrono::system_clock::now() - startTime) < std::chrono::seconds(1))
+		((std::chrono::system_clock::now() - startTime) < std::chrono::milliseconds(50))
 	)
 	{}
 	testSvrSocket->SendBytes(testData);
