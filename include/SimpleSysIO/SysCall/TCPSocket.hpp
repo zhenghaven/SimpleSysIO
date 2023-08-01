@@ -55,6 +55,9 @@ public: // static members:
 	 * @brief Create and connect a TCP socket to a remote endpoint
 	 *
 	 * @param endpoint The remote endpoint to connect to
+	 * @param ioService The io_service to use for asynchronous operations
+	 *                  NOTE: If this parameter is not specified or a nullptr,
+	 *                  a new io_service will be created and used
 	 * @return A unique pointer to the connected socket
 	 */
 	static std::unique_ptr<TCPSocket> Connect(
@@ -63,6 +66,10 @@ public: // static members:
 			std::make_shared<boost::asio::io_service>()
 	)
 	{
+		if (ioService == nullptr)
+		{
+			ioService = std::make_shared<boost::asio::io_service>();
+		}
 		auto socket = Create(std::move(ioService));
 		socket->m_socket.connect(endpoint);
 		socket->SetDefaultOptions();
