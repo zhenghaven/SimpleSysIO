@@ -60,7 +60,7 @@ FetchContent_Declare(
 FetchContent_MakeAvailable(git_simpleobjects)
 
 set(SIMPLEBOOST_BOOST_VER
-	"1.80.0"
+	"1.81.0"
 	CACHE STRING
 	"The version number of the selected boost library"
 	FORCE

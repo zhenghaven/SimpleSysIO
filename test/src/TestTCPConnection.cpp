@@ -5,7 +5,10 @@
 
 #include <gtest/gtest.h>
 
+#include <atomic>
 #include <thread>
+
+#include <boost/asio/executor_work_guard.hpp>
 
 #include <SimpleSysIO/SysCall/TCPSocket.hpp>
 #include <SimpleSysIO/SysCall/TCPAcceptor.hpp>
@@ -168,5 +171,324 @@ TEST_F(TestingServerV6, SendAndReceive)
 
 	TestSendAndReceive(*client, *m_testSocket);
 }
+
+
+TEST(TestTCPConnection, AsyncAccept)
+{
+	std::shared_ptr<boost::asio::io_service> ioService =
+		std::make_shared<boost::asio::io_service>();
+	boost::asio::executor_work_guard<boost::asio::io_context::executor_type>
+		workGuard = boost::asio::make_work_guard(*ioService);
+	std::thread ioThread([&]()
+		{
+			ioService->run();
+		}
+	);
+
+	auto acceptor1 = SysCall::TCPAcceptor::BindV4("127.0.0.1", 0, ioService);
+	{
+		acceptor1->AsyncAccept(
+			[](std::unique_ptr<StreamSocketBase>, bool)
+			{
+				// do nothing
+			}
+		);
+	}
+
+	auto acceptor = SysCall::TCPAcceptor::BindV4("127.0.0.1", 0, ioService);
+
+	std::unique_ptr<StreamSocketBase> testSvrSocket;
+	std::atomic_bool isAccepted(false);
+	acceptor->AsyncAccept(
+		[&](std::unique_ptr<StreamSocketBase> socket, bool hasErrorOccurred)
+		{
+			if(!hasErrorOccurred)
+			{
+				testSvrSocket = std::move(socket);
+				isAccepted = true;
+			}
+		}
+	);
+	auto testCltSocket = SysCall::TCPSocket::ConnectV4(
+		"127.0.0.1", acceptor->GetLocalPort()
+	);
+	// wait for connection
+	while(!isAccepted)
+	{}
+
+	TestSendAndReceive(*testCltSocket, *testSvrSocket);
+	testCltSocket.reset();
+	testSvrSocket.reset();
+
+
+
+	// try to accept again
+	isAccepted = false;
+	acceptor->AsyncAccept(
+		[&](std::unique_ptr<StreamSocketBase> socket, bool hasErrorOccurred)
+		{
+			if(!hasErrorOccurred)
+			{
+				testSvrSocket = std::move(socket);
+				isAccepted = true;
+			}
+		}
+	);
+	testCltSocket = SysCall::TCPSocket::ConnectV4(
+		"127.0.0.1", acceptor->GetLocalPort()
+	);
+	// wait for connection
+	while(!isAccepted)
+	{}
+
+	TestSendAndReceive(*testCltSocket, *testSvrSocket);
+	testCltSocket.reset();
+	testSvrSocket.reset();
+
+
+
+	// stop acceptor 1
+	acceptor1.reset();
+
+	// stop io service
+	ioService->stop();
+	ioThread.join();
+}
+
+
+TEST(TestTCPConnection, AsyncRecv)
+{
+	std::shared_ptr<boost::asio::io_service> ioService =
+		std::make_shared<boost::asio::io_service>();
+	boost::asio::executor_work_guard<boost::asio::io_context::executor_type>
+		workGuard = boost::asio::make_work_guard(*ioService);
+	std::thread ioThread([&]()
+		{
+			ioService->run();
+		}
+	);
+
+	// Construct server and client sockets
+	auto acceptor = SysCall::TCPAcceptor::BindV4("127.0.0.1", 0, ioService);
+	std::unique_ptr<StreamSocketBase> testSvrSocket;
+	std::atomic_bool isAccepted(false);
+	acceptor->AsyncAccept(
+		[&](std::unique_ptr<StreamSocketBase> socket, bool hasErrorOccurred)
+		{
+			if (!hasErrorOccurred)
+			{
+				testSvrSocket = std::move(socket);
+				isAccepted = true;
+			}
+		}
+	);
+	auto testCltSocket = SysCall::TCPSocket::ConnectV4(
+		"127.0.0.1", acceptor->GetLocalPort(), ioService
+	);
+	// wait for connection
+	while(!isAccepted)
+	{}
+
+	// async recv
+	std::string testStr = "Hello World!";
+	std::atomic_bool isRecv(false);
+	std::string recvStr;
+	StreamSocketRaw::AsyncRecv(
+		*testSvrSocket,
+		1024,
+		[&](std::vector<uint8_t> buf, bool hasErrorOccurred)
+		{
+			if (!hasErrorOccurred)
+			{
+				recvStr.resize(buf.size());
+				std::memcpy(&(recvStr[0]), buf.data(), buf.size());
+				isRecv = true;
+			}
+		}
+	);
+	testCltSocket->SendBytes(testStr);
+	// wait for recv
+	while(!isRecv)
+	{}
+
+
+	// compare result
+	EXPECT_GT(recvStr.size(), 0);
+	EXPECT_GE(testStr.size(), recvStr.size());
+	EXPECT_TRUE(testStr.find(recvStr) == 0);
+
+
+
+
+
+	// The other way around
+	isRecv = false;
+	recvStr.clear();
+	StreamSocketRaw::AsyncRecv(
+		*testCltSocket,
+		1024,
+		[&](std::vector<uint8_t> buf, bool hasErrorOccurred)
+		{
+			if (!hasErrorOccurred)
+			{
+				recvStr.resize(buf.size());
+				std::memcpy(&(recvStr[0]), buf.data(), buf.size());
+				isRecv = true;
+			}
+		}
+	);
+	testSvrSocket->SendBytes(testStr);
+	// wait for recv
+	while(!isRecv)
+	{}
+
+
+	// compare result
+	EXPECT_GT(recvStr.size(), 0);
+	EXPECT_GE(testStr.size(), recvStr.size());
+	EXPECT_TRUE(testStr.find(recvStr) == 0);
+
+
+	// stop io service
+	ioService->stop();
+	ioThread.join();
+}
+
+
+TEST(TestTCPConnection, AsyncRecvFill)
+{
+	std::shared_ptr<boost::asio::io_service> ioService =
+		std::make_shared<boost::asio::io_service>();
+	boost::asio::executor_work_guard<boost::asio::io_context::executor_type>
+		workGuard = boost::asio::make_work_guard(*ioService);
+	std::thread ioThread([&]()
+		{
+			ioService->run();
+		}
+	);
+
+	// Construct server and client sockets
+	auto acceptor = SysCall::TCPAcceptor::BindV4("127.0.0.1", 0, ioService);
+	std::unique_ptr<StreamSocketBase> testSvrSocket;
+	std::atomic_bool isAccepted(false);
+	acceptor->AsyncAccept(
+		[&](std::unique_ptr<StreamSocketBase> socket, bool hasErrorOccurred)
+		{
+			if (!hasErrorOccurred)
+			{
+				testSvrSocket = std::move(socket);
+				isAccepted = true;
+			}
+		}
+	);
+	std::unique_ptr<StreamSocketBase> testCltSocket =
+		SysCall::TCPSocket::ConnectV4(
+			"127.0.0.1", acceptor->GetLocalPort(), ioService
+		);
+	// wait for connection
+	while(!isAccepted)
+	{}
+	std::string testStr = "Hello World!";
+	std::atomic_bool isRecv(false);
+	std::string recvStr;
+
+	// async recv
+	isRecv = false;
+	recvStr.clear();
+	testSvrSocket->AsyncSizedRecvBytes<std::string>(
+		[&](std::string buf, bool hasErrorOccurred)
+		{
+			if (!hasErrorOccurred)
+			{
+				recvStr = std::move(buf);
+				isRecv = true;
+			}
+		}
+	);
+	testCltSocket->SizedSendBytes(testStr);
+	// wait for recv
+	while(!isRecv)
+	{}
+
+
+	// compare result
+	EXPECT_EQ(recvStr.size(), testStr.size());
+	EXPECT_EQ(recvStr, testStr);
+
+
+
+
+
+	// The other way around
+	isRecv = false;
+	recvStr.clear();
+	testCltSocket->AsyncSizedRecvBytes<std::string>(
+		[&](std::string buf, bool hasErrorOccurred)
+		{
+			if (!hasErrorOccurred)
+			{
+				recvStr = std::move(buf);
+				isRecv = true;
+			}
+		}
+	);
+	testSvrSocket->SizedSendBytes(testStr);
+	// wait for recv
+	while(!isRecv)
+	{}
+
+
+	// compare result
+	EXPECT_EQ(recvStr.size(), testStr.size());
+	EXPECT_EQ(recvStr, testStr);
+
+
+
+
+
+	// Try a break in the middle
+	std::vector<uint8_t> testData = {0x00U, 0x01U, 0x02U, 0x03U, 0x04U, };
+	std::vector<uint8_t> recvData;
+	isRecv = false;
+	testCltSocket->AsyncRecvRawUntilComplete(
+		testData.size() * 2,
+		[&](std::vector<uint8_t> buf, bool hasErrorOccurred)
+		{
+			if (!hasErrorOccurred)
+			{
+				recvData = std::move(buf);
+				isRecv = true;
+			}
+		}
+	);
+	testSvrSocket->SendBytes(testData);
+	// wait for recv
+	auto startTime = std::chrono::system_clock::now();
+	while(
+		!isRecv &&
+		((std::chrono::system_clock::now() - startTime) < std::chrono::milliseconds(50))
+	)
+	{}
+	testSvrSocket->SendBytes(testData);
+	while(!isRecv)
+	{}
+
+
+	// compare result
+	EXPECT_EQ(recvData.size(), testData.size() * 2);
+	EXPECT_EQ(
+		recvData,
+		std::vector<uint8_t>({
+			0x00U, 0x01U, 0x02U, 0x03U, 0x04U,
+			0x00U, 0x01U, 0x02U, 0x03U, 0x04U,
+		})
+	);
+
+
+	// stop io service
+	ioService->stop();
+	ioThread.join();
+}
+
 
 #endif // SIMPLESYSIO_ENABLE_SYSCALL_NETWORKING

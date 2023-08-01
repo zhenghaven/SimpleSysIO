@@ -17,6 +17,8 @@
 #include <memory>
 #include <string>
 
+#include <SimpleObjects/RealNumCast.hpp>
+
 #include "../Exceptions.hpp"
 #include "../Internal/SimpleObjects.hpp"
 #include "../BinaryIOStreamBase.hpp"
@@ -183,70 +185,65 @@ private:
 
 }; // class COpenImpl
 
-} // namespace SysCallInternal
-
-
-struct RBinaryFile
+template<
+	template<typename> class _WrapperType,
+	typename _BaseType
+>
+struct COpenerImpl
 {
-	using ImplType = SysCallInternal::COpenImpl;
-	using WrapperType = RBinaryIOSWrapper<ImplType>;
-	using RetType = std::unique_ptr<RBinaryIOSBase>;
 
-	static RetType Open(const std::string& path)
+	using ImplType = COpenImpl;
+	using WrapperType = _WrapperType<ImplType>;
+	using RetType = std::unique_ptr<_BaseType>;
+
+protected:
+
+	static RetType OpenImpl(
+		const std::string& path,
+		const std::string& mode
+	)
 	{
 		auto impl =
-			Internal::Obj::Internal::make_unique<ImplType>(
-				path,
-				"rb"
-			);
+			Internal::Obj::Internal::make_unique<ImplType>(path, mode);
 
 		return
 			Internal::Obj::Internal::make_unique<WrapperType>(
 				std::move(impl)
 			);
+	}
+
+}; // struct COpenerImpl
+
+} // namespace SysCallInternal
+
+
+struct RBinaryFile :
+	SysCallInternal::COpenerImpl<RBinaryIOSWrapper, RBinaryIOSBase>
+{
+	static RetType Open(const std::string& path)
+	{
+		return OpenImpl(path, "rb");
 	}
 }; // struct RBinaryFile
 
 
-struct WBinaryFile
+struct WBinaryFile :
+	SysCallInternal::COpenerImpl<WBinaryIOSWrapper, WBinaryIOSBase>
 {
-	using ImplType = SysCallInternal::COpenImpl;
-	using WrapperType = WBinaryIOSWrapper<ImplType>;
-	using RetType = std::unique_ptr<WBinaryIOSBase>;
-
-
 	static RetType Create(const std::string& path)
 	{
-		auto impl =
-			Internal::Obj::Internal::make_unique<ImplType>(
-				path,
-				"wb"
-			);
-
-		return
-			Internal::Obj::Internal::make_unique<WrapperType>(
-				std::move(impl)
-			);
+		return OpenImpl(path, "wb");
 	}
-
 
 	static RetType Append(const std::string& path)
 	{
-		auto impl =
-			Internal::Obj::Internal::make_unique<ImplType>(
-				path,
-				"ab"
-			);
-
-		return
-			Internal::Obj::Internal::make_unique<WrapperType>(
-				std::move(impl)
-			);
+		return OpenImpl(path, "ab");
 	}
 }; // struct WBinaryFile
 
 
-struct RWBinaryFile
+struct RWBinaryFile :
+	SysCallInternal::COpenerImpl<RWBinaryIOSWrapper, RWBinaryIOSBase>
 {
 	using ImplType = SysCallInternal::COpenImpl;
 	using WrapperType = RWBinaryIOSWrapper<ImplType>;
@@ -255,31 +252,12 @@ struct RWBinaryFile
 
 	static RetType Create(const std::string& path)
 	{
-		auto impl =
-			Internal::Obj::Internal::make_unique<ImplType>(
-				path,
-				"wb+"
-			);
-
-		return
-			Internal::Obj::Internal::make_unique<WrapperType>(
-				std::move(impl)
-			);
+		return OpenImpl(path, "wb+");
 	}
-
 
 	static RetType Append(const std::string& path)
 	{
-		auto impl =
-			Internal::Obj::Internal::make_unique<ImplType>(
-				path,
-				"ab+"
-			);
-
-		return
-			Internal::Obj::Internal::make_unique<WrapperType>(
-				std::move(impl)
-			);
+		return OpenImpl(path, "ab+");
 	}
 }; // struct RWBinaryFile
 

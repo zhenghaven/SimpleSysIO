@@ -44,22 +44,33 @@ public: // static members:
 	 *
 	 * @return A unique pointer to the created socket
 	 */
-	static std::unique_ptr<TCPSocket> Create()
+	static std::unique_ptr<TCPSocket> Create(
+		std::shared_ptr<boost::asio::io_service> ioService
+	)
 	{
-		return std::unique_ptr<TCPSocket>(new TCPSocket());
+		return std::unique_ptr<TCPSocket>(new TCPSocket(std::move(ioService)));
 	}
 
 	/**
 	 * @brief Create and connect a TCP socket to a remote endpoint
 	 *
 	 * @param endpoint The remote endpoint to connect to
+	 * @param ioService The io_service to use for asynchronous operations
+	 *                  NOTE: If this parameter is not specified or a nullptr,
+	 *                  a new io_service will be created and used
 	 * @return A unique pointer to the connected socket
 	 */
 	static std::unique_ptr<TCPSocket> Connect(
-		boost::asio::ip::tcp::endpoint endpoint
+		boost::asio::ip::tcp::endpoint endpoint,
+		std::shared_ptr<boost::asio::io_service> ioService =
+			std::make_shared<boost::asio::io_service>()
 	)
 	{
-		auto socket = Create();
+		if (ioService == nullptr)
+		{
+			ioService = std::make_shared<boost::asio::io_service>();
+		}
+		auto socket = Create(std::move(ioService));
 		socket->m_socket.connect(endpoint);
 		socket->SetDefaultOptions();
 		return socket;
@@ -68,38 +79,94 @@ public: // static members:
 
 	static std::unique_ptr<TCPSocket> Connect(
 		boost::asio::ip::address_v4 ip,
-		uint16_t port
+		uint16_t port,
+		std::shared_ptr<boost::asio::io_service> ioService =
+			std::make_shared<boost::asio::io_service>()
 	)
 	{
-		return Connect(boost::asio::ip::tcp::endpoint(ip, port));
+		return Connect(
+			boost::asio::ip::tcp::endpoint(ip, port),
+			std::move(ioService)
+		);
 	}
 
 
 	static std::unique_ptr<TCPSocket> Connect(
 		boost::asio::ip::address_v6 ip,
-		uint16_t port
+		uint16_t port,
+		std::shared_ptr<boost::asio::io_service> ioService =
+			std::make_shared<boost::asio::io_service>()
 	)
 	{
-		return Connect(boost::asio::ip::tcp::endpoint(ip, port));
+		return Connect(
+			boost::asio::ip::tcp::endpoint(ip, port),
+			std::move(ioService)
+		);
 	}
 
 
 	static std::unique_ptr<TCPSocket> ConnectV4(
 		const std::string& ipv4,
-		uint16_t port
+		uint16_t port,
+		std::shared_ptr<boost::asio::io_service> ioService =
+			std::make_shared<boost::asio::io_service>()
 	)
 	{
-		return Connect(boost::asio::ip::address_v4::from_string(ipv4), port);
+		return Connect(
+			boost::asio::ip::address_v4::from_string(ipv4),
+			port,
+			std::move(ioService)
+		);
 	}
 
 
 	static std::unique_ptr<TCPSocket> ConnectV6(
 		const std::string& ipv6,
-		uint16_t port
+		uint16_t port,
+		std::shared_ptr<boost::asio::io_service> ioService =
+			std::make_shared<boost::asio::io_service>()
 	)
 	{
-		return Connect(boost::asio::ip::address_v6::from_string(ipv6), port);
+		return Connect(
+			boost::asio::ip::address_v6::from_string(ipv6),
+			port,
+			std::move(ioService)
+		);
 	}
+
+
+	struct AsyncRecvHandler
+	{
+		std::vector<uint8_t> m_buffer;
+		AsyncRecvCallback m_callback;
+
+		AsyncRecvHandler(
+			size_t bufferSize,
+			AsyncRecvCallback callback
+		) :
+			m_buffer(bufferSize, 0),
+			m_callback(std::move(callback))
+		{}
+
+		~AsyncRecvHandler() = default;
+
+		static void Handler(
+			std::shared_ptr<AsyncRecvHandler> handler,
+			const boost::system::error_code& error,
+			size_t bytesTransferred
+		)
+		{
+			handler->m_buffer.resize(bytesTransferred);
+			if (!error)
+			{
+				handler->m_callback(std::move(handler->m_buffer), false);
+			}
+			else
+			{
+				handler->m_callback(std::move(handler->m_buffer), true);
+			}
+		}
+	}; // struct AsyncRecvHandler
 
 
 public:
@@ -126,10 +193,10 @@ public:
 protected:
 
 
-	TCPSocket() :
+	TCPSocket(std::shared_ptr<boost::asio::io_service> ioService) :
 		StreamSocketBase(),
-		m_ioService(),
-		m_socket(m_ioService)
+		m_ioService(std::move(ioService)),
+		m_socket(*m_ioService)
 	{}
 
 
@@ -145,10 +212,36 @@ protected:
 	}
 
 
+	virtual void AsyncRecvRaw(
+		size_t buffSize,
+		AsyncRecvCallback callback
+	) override
+	{
+		std::shared_ptr<AsyncRecvHandler> handler =
+			std::make_shared<AsyncRecvHandler>(
+				buffSize,
+				std::move(callback)
+			);
+
+		m_socket.async_receive(
+			boost::asio::buffer(
+				handler->m_buffer.data(),
+				handler->m_buffer.size()
+			),
+			std::bind(
+				&AsyncRecvHandler::Handler,
+				handler,
+				std::placeholders::_1,
+				std::placeholders::_2
+			)
+		);
+	}
+
+
 private:
 
 
-	boost::asio::io_service m_ioService;
+	std::shared_ptr<boost::asio::io_service> m_ioService;
 	boost::asio::ip::tcp::socket m_socket;
 
 

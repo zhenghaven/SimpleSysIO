@@ -6,6 +6,7 @@
 #pragma once
 
 
+#include <functional>
 #include <memory>
 
 #include "StreamSocketBase.hpp"
@@ -20,6 +21,11 @@ namespace SIMPLESYSIO_CUSTOMIZED_NAMESPACE
 
 class StreamAcceptorBase
 {
+public: // static members:
+
+	using AsyncAcceptCallback =
+		std::function<void(std::unique_ptr<StreamSocketBase>, bool)>;
+
 public:
 
 
@@ -38,6 +44,16 @@ public:
 	 * @return a unique pointer to the newly accepted socket
 	 */
 	virtual std::unique_ptr<StreamSocketBase> Accept() = 0;
+
+
+	/**
+	 * @brief Accept a new connection asynchronously
+	 *
+	 * @param callback the callback function to be called when a new connection
+	 *                 is accepted, or an error occurs
+	 */
+	virtual void AsyncAccept(AsyncAcceptCallback callback) = 0;
+
 
 }; // class StreamSocketServerBase
 
